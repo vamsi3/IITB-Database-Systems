@@ -1,0 +1,21 @@
+Assignment done by:
+
+Vamsi Krishna Satti 	160050064
+Vighnesh Konda			160050090
+
+
+
+src/ contains all the java files.
+
+The new ones include AutoCompleteServlet
+
+The modified ones include NewMessage
+
+removed the bug in NewMessage which does not handle when userid > other_id 
+
+
+WebContent/ contains all the html and css files.
+
+index.html is new
+content.html is removed
+whatasap_home.js is modified

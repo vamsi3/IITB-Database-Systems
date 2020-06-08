@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html>
+<style>
+table,th,td {
+  border : 1px solid black;
+  border-collapse: collapse;
+}
+th,td {
+  padding: 5px;
+}
+</style>
+<body>
+
+<h2>The User Conversations... </h2>
+
+<form action=""> 
+<select name="customers" onchange="showCustomer(this.value)">
+<option value="">Select a User:</option>
+<option value="p1">Person1</option>
+<option value="p2">Person2</option>
+<option value="p3">Person3</option>
+<option value="p4">Person4</option>
+<option value="p5">Person5</option>
+<option value="p6">Person6</option>
+<option value="p7">Person7</option>
+<option value="p8">Person8</option>
+</select>
+</form>
+<br>
+<div id="txtHint">User Conversations will be shown here...</div>
+
+<script>
+function showCustomer(str) {
+  var xhttp;    
+  if (str == "") {
+    document.getElementById("txtHint").innerHTML = "";
+    return;
+  }
+  xhttp = new XMLHttpRequest();
+  xhttp.onreadystatechange = function() {
+    if (this.readyState == 4 && this.status == 200) {
+    	var res = JSON.parse(this.responseText).data;
+    	var code = "<table><tr> <th>postID</th> <th>threadID</th> <th>UserID</th> <th>Message</th> <th>Timestamp</th> </tr>";
+    	for (var i = 0; i < res.length; i++) {
+    		var msg = res[i];
+    		code = code + "<tr> <td>" + msg.post_id + "</td> <td>" + msg.thread_id + "</td> <td>" + msg.uid + "</td> <td>" + msg.timestamp + "</td> <td>" + msg.text + "</td> </tr>";
+    	}
+    	code = code + "</table>"
+     	document.getElementById("txtHint").innerHTML = code;
+    }
+  };
+  xhttp.open("GET", "ConversationDetail?other_id="+str, true);
+  xhttp.send();
+}
+</script>
+
+</body>
+</html>

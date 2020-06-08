@@ -1,0 +1,372 @@
+=============================================================================================================================
+
+
+1.
+
+QUERY:
+
+	select count(*) from course c where exists (select * from takes t where t.course_id = c.course_id)
+
+
+PLAN AND EXECUTION TIME:
+
+	"Aggregate  (cost=254.30..254.31 rows=1 width=8) (actual time=189.488..189.488 rows=1 loops=1)"
+	"  ->  Nested Loop Semi Join  (cost=0.29..254.08 rows=85 width=0) (actual time=12.236..189.463 rows=85 loops=1)"
+	"        ->  Seq Scan on course c  (cost=0.00..4.00 rows=200 width=4) (actual time=0.012..0.071 rows=200 loops=1)"
+	"        ->  Index Only Scan using takes_pkey on takes t  (cost=0.29..237.10 rows=353 width=4) (actual time=0.946..0.946 rows=0 loops=200)"
+	"              Index Cond: (course_id = (c.course_id)::text)"
+	"              Heap Fetches: 85"
+	"Planning time: 0.395 ms"
+	"Execution time: 189.535 ms"
+
+
+REASONING:
+
+	Semijoin returns the set of all tuples in first relation for which there is a tuple in second relation that is equal on their common attribute names.
+	Since we used a exists check, the planner is interested in presence of atleast one row in the inner query for every course c from the outer query. So, the definition of semi-join naturally fits in here so it uses nested semi join loop. Also, since course_id is a part of primary key of takes, and index scan for the inner query works optimally, while doing a sequential scan over course c.
+
+
+=============================================================================================================================
+
+
+2.
+
+QUERY:
+
+	select count(*) from course c where not exists (select * from takes t where t.course_id = c.course_id)
+
+
+PLAN AND EXECUTION TIME:
+
+	"Aggregate  (cost=254.37..254.38 rows=1 width=8) (actual time=143.389..143.389 rows=1 loops=1)"
+	"  ->  Nested Loop Anti Join  (cost=0.29..254.08 rows=115 width=0) (actual time=1.532..143.358 rows=115 loops=1)"
+	"        ->  Seq Scan on course c  (cost=0.00..4.00 rows=200 width=4) (actual time=0.009..0.040 rows=200 loops=1)"
+	"        ->  Index Only Scan using takes_pkey on takes t  (cost=0.29..237.10 rows=353 width=4) (actual time=0.716..0.716 rows=0 loops=200)"
+	"              Index Cond: (course_id = (c.course_id)::text)"
+	"              Heap Fetches: 85"
+	"Planning time: 0.215 ms"
+	"Execution time: 143.426 ms"
+
+
+REASONING:
+
+	Antijoin returns the set of all tuples in first relation for which there is no tuple in second relation that is equal on their common attribute names.
+	This case is opposite to previous one, and the definition of antijoin clearly fits in here, how was semijoin correct of the previous case. Rest is same as the previous case, except that during the index scan, this time the nested loop antijoin takes care that if index is not found, the row from sequential scan of course c is returnted for count aggregation.
+
+
+=============================================================================================================================
+
+
+3.
+
+QUERY:
+
+	select count(*) from course c where 333 < (select count(*) from takes t where t.course_id = c.course_id)
+
+
+PLAN AND EXECUTION TIME:
+
+	"Aggregate  (cost=119183.17..119183.18 rows=1 width=8) (actual time=603.197..603.197 rows=1 loops=1)"
+	"  ->  Seq Scan on course c  (cost=0.00..119183.00 rows=67 width=0) (actual time=53.843..603.191 rows=16 loops=1)"
+	"        Filter: (333 < (SubPlan 1))"
+	"        Rows Removed by Filter: 184"
+	"        SubPlan 1"
+	"          ->  Aggregate  (cost=595.88..595.89 rows=1 width=8) (actual time=3.015..3.015 rows=1 loops=200)"
+	"                ->  Seq Scan on takes t  (cost=0.00..595.00 rows=353 width=0) (actual time=1.719..3.002 rows=150 loops=200)"
+	"                      Filter: ((course_id)::text = (c.course_id)::text)"
+	"                      Rows Removed by Filter: 29850"
+	"Planning time: 0.155 ms"
+	"Execution time: 603.250 ms"
+
+
+=============================================================================================================================
+
+
+4.
+
+QUERY:
+
+	with temp(course_id, cnt) as (
+		select distinct c.course_id, count(t.id) from takes t, course c where t.course_id = c.course_id group by c.course_id
+	)
+	select count(*) from temp where 333 < cnt
+
+
+PLAN AND EXECUTION TIME:
+
+	"Aggregate  (cost=772.73..772.74 rows=1 width=8) (actual time=26.126..26.127 rows=1 loops=1)"
+	"  CTE temp"
+	"    ->  Unique  (cost=766.56..768.06 rows=200 width=12) (actual time=26.067..26.097 rows=85 loops=1)"
+	"          ->  Sort  (cost=766.56..767.06 rows=200 width=12) (actual time=26.066..26.075 rows=85 loops=1)"
+	"                Sort Key: c.course_id, (count(t.id))"
+	"                Sort Method: quicksort  Memory: 28kB"
+	"                ->  HashAggregate  (cost=756.92..758.92 rows=200 width=12) (actual time=25.916..25.938 rows=85 loops=1)"
+	"                      Group Key: c.course_id"
+	"                      ->  Hash Join  (cost=6.50..606.92 rows=30000 width=9) (actual time=0.148..16.004 rows=30000 loops=1)"
+	"                            Hash Cond: ((t.course_id)::text = (c.course_id)::text)"
+	"                            ->  Seq Scan on takes t  (cost=0.00..520.00 rows=30000 width=9) (actual time=0.013..4.336 rows=30000 loops=1)"
+	"                            ->  Hash  (cost=4.00..4.00 rows=200 width=4) (actual time=0.106..0.106 rows=200 loops=1)"
+	"                                  Buckets: 1024  Batches: 1  Memory Usage: 16kB"
+	"                                  ->  Seq Scan on course c  (cost=0.00..4.00 rows=200 width=4) (actual time=0.008..0.055 rows=200 loops=1)"
+	"  ->  CTE Scan on temp  (cost=0.00..4.50 rows=67 width=0) (actual time=26.071..26.122 rows=16 loops=1)"
+	"        Filter: (333 < cnt)"
+	"        Rows Removed by Filter: 69"
+	"Planning time: 0.411 ms"
+	"Execution time: 26.201 ms"
+
+
+REASONING:
+
+	The execution time in this case is lesser than the previous one (Q3), because in the previous case it has to perform aggregation always on the inner correlated one for every row in the outer query. In this case, after the evaluation fo temp using join, postgres has to select cnt > 333. Now number of such rows in temp << thosee in takes amd hence hash join is better choice.
+
+
+=============================================================================================================================
+
+
+5.
+
+QUERY:
+
+	create materialized view temp as select c.course_id, count(ID) from course c, takes t where t.course_id = c.course_id group by c.course_id
+
+
+=============================================================================================================================
+
+
+6.
+
+QUERY:
+
+	USING DIRECT QUERY: select count(*) from (select c.course_id, count(ID) from course c, takes t where t.course_id = c.course_id group by c.course_id) temp2
+	USING MATERIALZIZED VIEW: select count(*) from temp
+
+
+PLAN AND EXECUTION TIME:
+
+	USING DIRECT QUERY:
+
+		"Aggregate  (cost=686.42..686.43 rows=1 width=8) (actual time=24.852..24.852 rows=1 loops=1)"
+		"  ->  HashAggregate  (cost=681.92..683.92 rows=200 width=12) (actual time=24.821..24.839 rows=85 loops=1)"
+		"        Group Key: c.course_id"
+		"        ->  Hash Join  (cost=6.50..606.92 rows=30000 width=4) (actual time=0.121..15.733 rows=30000 loops=1)"
+		"              Hash Cond: ((t.course_id)::text = (c.course_id)::text)"
+		"              ->  Seq Scan on takes t  (cost=0.00..520.00 rows=30000 width=4) (actual time=0.014..4.332 rows=30000 loops=1)"
+		"              ->  Hash  (cost=4.00..4.00 rows=200 width=4) (actual time=0.096..0.096 rows=200 loops=1)"
+		"                    Buckets: 1024  Batches: 1  Memory Usage: 16kB"
+		"                    ->  Seq Scan on course c  (cost=0.00..4.00 rows=200 width=4) (actual time=0.008..0.046 rows=200 loops=1)"
+		"Planning time: 0.399 ms"
+		"Execution time: 24.917 ms"
+
+
+	USING MATERIALIZED VIEW:
+
+		"Aggregate  (cost=24.50..24.51 rows=1 width=8) (actual time=0.035..0.035 rows=1 loops=1)"
+		"  ->  Seq Scan on temp  (cost=0.00..21.60 rows=1160 width=0) (actual time=0.014..0.022 rows=85 loops=1)"
+		"Planning time: 0.057 ms"
+		"Execution time: 0.070 ms"
+
+
+
+REASONING:
+
+	For the case where materialized view is used, since temp only has 85 rows, a simple sequential scan takes very less time, where as in the first case the time inludes the inner query's join, group by and then the count aggregation hence taking a much longer time. 
+
+
+=============================================================================================================================
+
+
+7.
+
+QUERY:
+	
+	CREATING MATERIALIZED VIEW: create materialized view temp as select * from takes natural join student
+	USING DIRECT QUERY: select count(*) from (select * from takes natural join student) temp2 where id = '14182'
+	USING MATERIALZIZED VIEW: selects count(*) from temp where id = '14182'
+
+
+PLAN AND EXECUTION TIME:
+
+	USING DIRECT QUERY:
+
+		"Aggregate  (cost=61.32..61.33 rows=1 width=8) (actual time=0.100..0.100 rows=1 loops=1)"
+		"  ->  Nested Loop  (cost=4.68..61.29 rows=15 width=0) (actual time=0.057..0.093 rows=19 loops=1)"
+		"        ->  Index Only Scan using student_pkey on student  (cost=0.28..8.29 rows=1 width=5) (actual time=0.028..0.029 rows=1 loops=1)"
+		"              Index Cond: (id = '14182'::text)"
+		"              Heap Fetches: 1"
+		"        ->  Bitmap Heap Scan on takes  (cost=4.40..52.84 rows=15 width=5) (actual time=0.025..0.056 rows=19 loops=1)"
+		"              Recheck Cond: ((id)::text = '14182'::text)"
+		"              Heap Blocks: exact=18"
+		"              ->  Bitmap Index Scan on takes_pkey  (cost=0.00..4.40 rows=15 width=0) (actual time=0.016..0.016 rows=19 loops=1)"
+		"                    Index Cond: ((id)::text = '14182'::text)"
+		"Planning time: 0.213 ms"
+		"Execution time: 0.159 ms"
+
+
+	USING MATERIALIZED VIEW:
+
+		"Aggregate  (cost=389.31..389.32 rows=1 width=8) (actual time=5.393..5.394 rows=1 loops=1)"
+		"  ->  Seq Scan on temp  (cost=0.00..389.21 rows=39 width=0) (actual time=0.066..5.384 rows=19 loops=1)"
+		"        Filter: ((id)::text = '14182'::text)"
+		"        Rows Removed by Filter: 29981"
+		"Planning time: 0.082 ms"
+		"Execution time: 5.436 ms"
+
+
+
+REASONING:
+
+	In this case, the is no group by and the temp materialized view has nearly 30,000 rows. So, using the materialized view, we need to perform a sequential scan. But in case of direct query, count is computed during the index scan over student on given id, with nested loop join. Since the count aggregation is performed while join is faster than performing the aggregation over a sequential scan of 30,000 rows. Hence, here the direct query is faster than using materialized view; opposite to the previous case. 
+
+
+=============================================================================================================================
+
+
+8.
+
+QUERY:
+	
+	set max_parallel_workers_per_gather=4;
+	create table bigtakes as select * from takes;
+	insert into bigtakes select * from bigtakes;
+	insert into bigtakes select * from bigtakes;
+	insert into bigtakes select * from bigtakes;
+	insert into bigtakes select * from bigtakes;
+	explain analyze select count(*) from bigtakes;
+
+PLAN AND EXECUTION TIME:
+
+	"Finalize Aggregate  (cost=5378.15..5378.16 rows=1 width=8) (actual time=46.449..46.450 rows=1 loops=1)"
+	"  ->  Gather  (cost=5377.93..5378.14 rows=2 width=8) (actual time=46.382..49.023 rows=3 loops=1)"
+	"        Workers Planned: 2"
+	"        Workers Launched: 2"
+	"        ->  Partial Aggregate  (cost=4377.93..4377.94 rows=1 width=8) (actual time=35.729..35.729 rows=1 loops=3)"
+	"              ->  Parallel Seq Scan on bigtakes  (cost=0.00..4205.75 rows=68875 width=0) (actual time=0.013..20.962 rows=160000 loops=3)"
+	"Planning time: 0.071 ms"
+	"Execution time: 49.076 ms"
+
+
+REASONING:
+
+	Since the bigtakes table was huge, postgres used 2 parallel 'workers' to perform the count aggregate on the bigtakes table splits parallely. And, finally the results are gathered, and in this case since the aggregation is a count, the two workers results are added, thus speeding up the overall execution time.
+
+
+=============================================================================================================================
+
+
+9.1.
+
+
+OBSERVATION:
+
+	tot_cred value in 1st connection = 59
+	tot_cred value in 2nd connection = 59
+
+
+REASONING:
+
+	In serializable isolation, postgres transactions reads are done from a snapshot at which the transaction is started using 'begin;'. Hence, even though one connection updates the tot_cred value, the second connection can't view this change as it uses its own snapshot for its updates until each commits their transactions. This is different from the case when teh isolation used is'read-commited'
+
+
+=============================================================================================================================
+
+
+9.2.
+
+OBSERVATION:
+	
+	CONNECTION 1:
+
+		sample=# select id, salary from instructor where id in('63395', '78699');
+		  id   |  salary  
+		-------+----------
+		 63395 | 94333.99
+		 78699 | 59303.62
+		(2 rows)
+
+		sample=# begin;
+		BEGIN
+		sample=# set transaction isolation level serializable;
+		SET
+		sample=# update instructor set salary = (select salary from instructor where id = '63395') where id = '78699';
+		UPDATE 1
+		sample=# commit;
+		COMMIT
+		sample=# select id, salary from instructor where id in('63395', '78699');
+		  id   |  salary  
+		-------+----------
+		 63395 | 94333.99
+		 78699 | 94333.99
+		(2 rows)
+
+		sample=# 
+
+
+	CONNECTION 2:
+
+		sample=# begin;
+		BEGIN
+		sample=# set transaction isolation level serializable;
+		SET
+		sample=# update instructor set salary = (select salary from instructor where id = '78699') where id = '63395';
+		UPDATE 1
+		sample=# commit;
+		ERROR:  could not serialize access due to read/write dependencies among transactions
+		DETAIL:  Reason code: Canceled on identification as a pivot, during commit attempt.
+		HINT:  The transaction might succeed if retried.
+		sample=# 
+
+
+REASONING:
+
+	 In serializable transaction isolation, any concurrent execution of a set of Serializable transactions is guaranteed to produce the same effect as running them one at a time in some order. So, in connection 2, when it tries to commit after connection 1's commit; we get a error. This is because if first update occured after second one in a serial fashion, both values should be salary 9=94333.99 butif other order is followed, both salaries would become 59303.62. Hence, because there are different, the serializable isolation fails to commit the second connection's transaction.
+
+
+=============================================================================================================================
+
+
+9.3.
+
+OBSERVATION:
+	
+	CONNECTION 1:
+
+		sample=# select id, salary from instructor where id in('63395', '78699');
+		  id   |  salary  
+		-------+----------
+		 63395 | 94333.99
+		 78699 | 59303.62
+		(2 rows)
+
+		sample=# begin;
+		BEGIN
+		sample=# update instructor set salary = (select salary from instructor where id = '63395') where id = '78699';
+		UPDATE 1
+		sample=# commit;
+		COMMIT
+		sample=# select id, salary from instructor where id in('63395', '78699');
+		  id   |  salary  
+		-------+----------
+		 78699 | 94333.99
+		 63395 | 59303.62
+		(2 rows)
+
+		sample=# 
+
+
+	CONNECTION 2:
+
+		sample=# begin;
+		BEGIN
+		sample=# update instructor set salary = (select salary from instructor where id = '78699') where id = '63395';
+		UPDATE 1
+		sample=# commit;
+		COMMIT
+		sample=# 
+
+
+REASONING:
+
+	While commiting the second connections's update in read-commited isolation, the reads are taken from the lastest commited snapshot in which there is no read dependencies, i.e. the snapshot of the main table where the initial snapshot value of second transaction have the same value for the values being read.
+
+
+=============================================================================================================================

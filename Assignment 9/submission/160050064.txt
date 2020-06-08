@@ -1,0 +1,261 @@
+=============================================================================================================================
+
+
+1.
+
+Query:
+
+SELECT * FROM takes
+
+
+Plan:
+
+"Seq Scan on takes  (cost=0.00..520.00 rows=30000 width=24)"
+
+
+Reasoning:
+
+Since there are no filters like 'WHERE CLAUSE' or any additional conditions in the query, a simple file scan is a natural plan. We want *all* the entries in the table 'takes'. Any other plan will cause an unnecessary overhead and delay.
+
+
+=============================================================================================================================
+
+
+2.
+
+Query:
+
+SELECT * FROM takes WHERE id='96052'
+
+
+Plan:
+
+"Bitmap Heap Scan on takes  (cost=4.40..52.84 rows=15 width=24)"
+"  Recheck Cond: ((id)::text = '96052'::text)"
+"  ->  Bitmap Index Scan on takes_pkey  (cost=0.00..4.40 rows=15 width=0)"
+"        Index Cond: ((id)::text = '96052'::text)"
+
+
+Reasoning:
+
+The where condition [id='96052'] is too restrictive and hence likely will have less rows in the query result. So. the planner figures this out and avoids a simple file scan. 
+Also 'id' is a primary key of 'takes'. The planner could chose between Bitmap Index Scan and Index scan directly but since takes is a relatively large table, the planner chose a Bitmap Index Scan (in anticipation of less overhead). I guessed that if 'student' was used above instead of 'takes', Index scan could happen and it actually does.
+
+
+=============================================================================================================================
+
+
+3.
+
+Query:
+
+SELECT * FROM student WHERE id='96052' and name='Marcol'
+
+
+Plan:
+
+"Index Scan using student_pkey on student  (cost=0.28..8.30 rows=1 width=24)"
+"  Index Cond: ((id)::text = '96052'::text)"
+"  Filter: ((name)::text = 'Marcol'::text)"
+
+
+Reasoning:
+
+As discussed above in  Reasoning for (2.), Index scan happens. Also, aditionally since name is not any primary key of student, a filter is used by planner.
+
+
+=============================================================================================================================
+
+
+4.
+
+Query:
+
+SELECT * FROM takes as t1, takes as t2 WHERE t1.year > 2000 AND t1.year < t2.year
+
+
+Plan:
+
+"Nested Loop  (cost=0.29..12760876.00 rows=300000000 width=48)"
+"  ->  Seq Scan on takes t1  (cost=0.00..595.00 rows=30000 width=24)"
+"        Filter: (year > '2000'::numeric)"
+"  ->  Index Scan using takes_pkey on takes t2  (cost=0.29..325.34 rows=10000 width=24)"
+"        Index Cond: (t1.year < year)"
+
+
+Reasoning:
+
+We have a join of two 'takes' here. The possible join strategies are - nested loop join, merge join, hash join. Since we have the condition [t1.year < t2.year], using hash join makes it difficult this condition directly over the < operator (an = in the condition might encourage planner to chose hash join and it indeed does). Also, since no ordering is being expected in the output, the sorting just causes unnecessary overhead on such a large table like 'takes'. So, nested join is preferred by planner here. Since year is in the primary key of takes, index scan for the [t1.year < t2.year] makes sense. Also, the way the two conditions are written [t1.year > 2000] and [t1.year < t2.year] causes a dependency from an attribute from the first child.
+
+
+=============================================================================================================================
+
+
+5.
+
+Query:
+
+SELECT * FROM student, takes WHERE takes.id=student.id ORDER BY takes.id
+
+
+Plan:
+
+"Merge Join  (cost=0.56..2616.55 rows=30000 width=48)"
+"  Merge Cond: ((student.id)::text = (takes.id)::text)"
+"  ->  Index Scan using student_pkey on student  (cost=0.28..130.27 rows=2000 width=24)"
+"  ->  Index Scan using takes_pkey on takes  (cost=0.29..2106.28 rows=30000 width=24)"
+
+
+Reasoning:
+
+In merge join as quoted from Postgres docs, each relation is sorted on the join attributes before the join starts. Then the two relations are scanned in parallel, and matching rows are combined to form join rows. Now, since we are anyway using a 'ORDER BY takes.id', using merge join implicity does it and hence becomes the best choice for the planner.
+
+
+=============================================================================================================================
+
+
+6.
+
+[Part 1] -----------
+
+Query:
+
+SELECT * FROM student, takes WHERE takes.id=student.id ORDER BY takes.id LIMIT 10
+
+
+Plan:
+
+"Limit  (cost=0.56..1.44 rows=10 width=48) (actual time=0.021..0.040 rows=10 loops=1)"
+"  ->  Merge Join  (cost=0.56..2616.55 rows=30000 width=48) (actual time=0.020..0.037 rows=10 loops=1)"
+"        Merge Cond: ((student.id)::text = (takes.id)::text)"
+"        ->  Index Scan using student_pkey on student  (cost=0.28..130.27 rows=2000 width=24) (actual time=0.010..0.010 rows=1 loops=1)"
+"        ->  Index Scan using takes_pkey on takes  (cost=0.29..2106.28 rows=30000 width=24) (actual time=0.005..0.017 rows=10 loops=1)"
+"Planning time: 2.523 ms"
+"Execution time: 0.079 ms"
+
+
+Reasoning:
+
+The join algorithm remains the same (merge-join) with and without limit clause. The plan did not change much except about the additon of a limit in plan. This is because the ORDER BY is still present and hence we want the first 10 rows of the 'ordered' query result. Hence, since sorting is inevitable, merge join remains to be a natural choice.
+
+
+[Part 2] -----------
+
+Queries:
+
+SELECT * FROM student, takes WHERE takes.id=student.id
+
+(and)
+
+SELECT * FROM student, takes WHERE takes.id=student.id LIMIT 10
+
+
+Plan:
+
+"Hash Join  (cost=60.00..658.92 rows=30000 width=48) (actual time=0.727..21.713 rows=30000 loops=1)"
+"  Hash Cond: ((takes.id)::text = (student.id)::text)"
+"  ->  Seq Scan on takes  (cost=0.00..520.00 rows=30000 width=24) (actual time=0.013..4.092 rows=30000 loops=1)"
+"  ->  Hash  (cost=35.00..35.00 rows=2000 width=24) (actual time=0.702..0.702 rows=2000 loops=1)"
+"        Buckets: 2048  Batches: 1  Memory Usage: 133kB"
+"        ->  Seq Scan on student  (cost=0.00..35.00 rows=2000 width=24) (actual time=0.008..0.291 rows=2000 loops=1)"
+"Planning time: 2.861 ms"
+"Execution time: 23.682 ms"
+
+(and)
+
+"Limit  (cost=0.29..1.32 rows=10 width=48) (actual time=0.038..0.056 rows=10 loops=1)"
+"  ->  Nested Loop  (cost=0.29..3091.00 rows=30000 width=48) (actual time=0.037..0.052 rows=10 loops=1)"
+"        ->  Seq Scan on student  (cost=0.00..35.00 rows=2000 width=24) (actual time=0.014..0.015 rows=1 loops=1)"
+"        ->  Index Scan using takes_pkey on takes  (cost=0.29..1.38 rows=15 width=24) (actual time=0.017..0.030 rows=10 loops=1)"
+"              Index Cond: ((id)::text = (student.id)::text)"
+"Planning time: 0.450 ms"
+"Execution time: 0.095 ms"
+
+Reasoning:
+
+The join algorithm remains from hash-join to nested-loop-join without and with limit clause respectively. Extending from the reasoning in part 1 above, since there is no order by, merge join isn't a favorable choice over nested loop join and hash join. Since initially we had the condition [takes.id=student.id], using a hash join with this equality check condition is chosen by planner. But, on adding LIMIT clause, since we are only interested in 10 rows, hash join has too much overhead that is not worth it for 10 row results. Hence, nested loop is chosen by the planner.
+
+
+=============================================================================================================================
+
+
+7.
+
+Output:
+
+For CREATE INDEX ... : Query returned successfully with no result in 122 msec.
+For DROP INDEX ... : Query returned successfully with no result in 12 msec.
+
+
+=============================================================================================================================
+
+
+8.
+
+Query:
+
+[Without indices]
+
+explain analyze delete from course where course_id = '400';
+
+(and)
+
+[With indices for foreign keys]
+
+-- Adding indices
+CREATE INDEX i1 ON section(course_id);
+CREATE INDEX i2 ON prereq(course_id);
+CREATE INDEX i3 ON prereq(prereq_id);
+CREATE INDEX i4 ON teaches(course_id, sec_id, semester, year);
+CREATE INDEX i5 ON takes(course_id, sec_id, semester, year);
+
+-- Running the query
+explain analyze delete from course where course_id = '400';
+
+
+Plans:
+
+"Delete on course  (cost=0.00..4.50 rows=1 width=6) (actual time=0.097..0.097 rows=0 loops=1)"
+"  ->  Seq Scan on course  (cost=0.00..4.50 rows=1 width=6) (actual time=0.018..0.054 rows=1 loops=1)"
+"        Filter: ((course_id)::text = '400'::text)"
+"        Rows Removed by Filter: 199"
+"Planning time: 1.722 ms"
+"Trigger for constraint section_course_id_fkey on course: time=2.116 calls=1"
+"Trigger for constraint prereq_course_id_fkey on course: time=1.964 calls=1"
+"Trigger for constraint prereq_prereq_id_fkey on course: time=0.420 calls=1"
+"Trigger for constraint teaches_course_id_fkey on section: time=2.503 calls=2"
+"Trigger for constraint takes_course_id_fkey on section: time=15.369 calls=2"
+"Execution time: 22.531 ms"
+
+(and)
+
+"Delete on course  (cost=0.00..4.50 rows=1 width=6) (actual time=0.079..0.079 rows=0 loops=1)"
+"  ->  Seq Scan on course  (cost=0.00..4.50 rows=1 width=6) (actual time=0.031..0.062 rows=1 loops=1)"
+"        Filter: ((course_id)::text = '400'::text)"
+"        Rows Removed by Filter: 199"
+"Planning time: 1.247 ms"
+"Trigger for constraint section_course_id_fkey on course: time=2.571 calls=1"
+"Trigger for constraint prereq_course_id_fkey on course: time=3.037 calls=1"
+"Trigger for constraint prereq_prereq_id_fkey on course: time=0.357 calls=1"
+"Trigger for constraint teaches_course_id_fkey on section: time=2.681 calls=2"
+"Trigger for constraint takes_course_id_fkey on section: time=5.483 calls=2"
+"Execution time: 14.254 ms"
+
+
+Times taken:
+
+"Execution time: 22.531 ms"
+
+(and)
+
+"Execution time: 14.254 ms"
+
+
+Reasoning:
+
+Without indices when the deletion is done, the foreign key dependent rows from other tables are also to be checked, searched and deleted. Since those columns in other tables may not be primary keys, it might take a longer time to search throughout the other tables. But when indices are added, naturally this search becomes much faster and hence lower time is seen execute the query.
+
+
+=============================================================================================================================
+														END
+=============================================================================================================================

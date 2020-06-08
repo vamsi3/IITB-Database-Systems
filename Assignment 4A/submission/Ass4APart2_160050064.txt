@@ -1,0 +1,8 @@
+noPrepStmt: 
+1. Instructor with ID 10101 has his salary changed from 65100 to 71610.
+2. Every instructor's salary increased by 10%.
+3. The relation instructordup does not exist. [the table was dropped due to SQL injection].
+withPrepStmt:
+1. Instructor with ID 10101 has his salary changed from 65100 to 71610.
+2. Nothing happens.
+3. NOthing happens.
