@@ -4,9 +4,10 @@ This repository contains all my submissions to assignments written during my stu
 
 *Note that Assignments 1 to 3 based on SQL were to be answered on XData portal made by CSE Dept, IIT Bombay for automatic grading. Thus, this repository only contains all the other assignments.*
 
-## Author
+## Authors
 
 * **Vamsi Krishna Reddy Satti** - [vamsi3](https://github.com/vamsi3)
+* Vighnesh Reddy Konda - [scopegeneral](https://github.com/scopegeneral)
 
 ## Acknowledgement
 
