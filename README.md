@@ -1,8 +1,12 @@
-# CS317 / CS387: Database Systems (Autumn 2018) - IIT Bombay
+# Database Systems (Autumn 2018) - IIT Bombay
 
-This repository contains all my submissions to assignments written during my study of the CS317 / CS387 - **Database and Information Systems & Lab** course in Autumn 2018 at Indian Institute of Technology (IIT) Bombay, India.
+This repository contains all my submissions to assignments written during my study of the **CS317 / CS387 - Database and Information Systems & Lab** course in Autumn 2018 at Indian Institute of Technology (IIT) Bombay, India.
 
 *Note that Assignments 1 to 3 based on SQL were to be answered on XData portal made by CSE Dept, IIT Bombay for automatic grading. Thus, this repository only contains all the other assignments.*
+
+## Project
+
+The final project for the course was: **_Auto-Indexing in PostgreSQL_**. More details can be found in the [Final Project](Final%20Project) directory.
 
 ## Authors
 
