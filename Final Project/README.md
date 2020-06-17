@@ -2,7 +2,7 @@
 
 > This project uses various strategies to automatically maintain indices by dynamically adapting the database workload in PostgreSQL.
 
-You may want to check out the [report.pdf](/docs/report.pdf) file for more details. It was made as the final project for **CS317 / CS387 - Database and Information Systems & Lab** course in Autumn 2018 at Indian Institute of Technology (IIT) Bombay, India.
+You may want to check out the [report.pdf](docs/report.pdf) file for more details. It was made as the final project for **CS317 / CS387 - Database and Information Systems & Lab** course in Autumn 2018 at Indian Institute of Technology (IIT) Bombay, India.
 
 ## Getting Started
 
